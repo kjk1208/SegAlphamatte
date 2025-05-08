@@ -3,16 +3,14 @@
 from isegm.utils.exp_imports.default import *
 from torch.nn import CrossEntropyLoss
 
-from isegm.data.datasets.aim500 import AIM500TrimapDataset
-from isegm.data.datasets.p3m10k import P3M10KTrimapDataset
-from isegm.data.datasets.am2k import AM2KTrimapDataset
-from isegm.data.datasets.composition import COMPOSITIONTrimapDataset
+from isegm.data.datasets.adobe_alpha import AdobeAlphamatteDataset
+from isegm.model.alpha_metrics import AlphaMAE, AlphaMSE, AlphaPSNR, AlphaGradientError
 from torch.utils.data import ConcatDataset
 
 from isegm.model.trimap_combineloss import CombinedLoss
 from isegm.model.losses import NormalizedFocalLossSoftmax, UnknownRegionDTLoss
 
-MODEL_NAME = 'all_dataset_trimap_vit_huge448_CE_loss'
+MODEL_NAME = 'all_dataset_alphamatte_vit_huge448_BCE_loss'
 
 
 def main(cfg):
@@ -49,7 +47,7 @@ def init_model(cfg):
         dropout_ratio=0.1,
         num_classes=1,
         # num_classes=3,        
-        loss_decode=nn.CrossEntropyLoss(),
+        loss_decode=nn.BCEWithLogitsLoss(),
         align_corners=False,
         upsample=cfg.upsample,
         channels={'x1': 256, 'x2': 128, 'x4': 64}[cfg.upsample],
@@ -77,7 +75,6 @@ def train(model, cfg, model_cfg):
     crop_size = model_cfg.crop_size
 
     loss_cfg = edict()
-    # loss_cfg.instance_loss = nn.CrossEntropyLoss()
     loss_cfg.instance_loss = nn.BCEWithLogitsLoss()
     loss_cfg.instance_loss_weight = 1.0
     
@@ -94,33 +91,14 @@ def train(model, cfg, model_cfg):
         PadIfNeeded(min_height=cfg.INPUT_SIZE, min_width=cfg.INPUT_SIZE, border_mode=0)
     ], p=1.0)
 
-    trainset1 = AM2KTrimapDataset(
-        dataset_path=cfg.AM2K_PATH,
+    trainset = AdobeAlphamatteDataset(
+        dataset_path=cfg.ADOBE_ALPHAMATTE_TRAIN_PATH,
         split='train',
         augmentator=train_augmentator,
         epoch_len=-1,
     )
-    trainset2 = P3M10KTrimapDataset(
-        dataset_path=cfg.P3M10K_TRAIN_PATH,
-        split='train',
-        augmentator=train_augmentator,
-        epoch_len=-1,
-    )
-    #20250505_kjk
-    
-    trainset3 = COMPOSITIONTrimapDataset(
-        dataset_path=cfg.COMPOSITION431K_PATH,
-        split='train',
-        augmentator=train_augmentator,
-        epoch_len=-1
-    )
-    
-    trainset = ConcatDataset([trainset1, trainset2, trainset3])
-    # trainset = ConcatDataset([trainset1, trainset2])
-    #20250505_kjk
-
-    valset = P3M10KTrimapDataset(
-        dataset_path=cfg.P3M10K_TEST_PATH,
+    valset = AdobeAlphamatteDataset(
+        dataset_path=cfg.ADOBE_ALPHAMATTE_TEST_PATH,
         split='val',
         augmentator=val_augmentator,
         epoch_len=-1,
@@ -133,11 +111,14 @@ def train(model, cfg, model_cfg):
     lr_scheduler = partial(torch.optim.lr_scheduler.MultiStepLR,
                            milestones=[50, 55], gamma=0.1)
     
-    logger.info(f'Trainset1 (AIM500): {len(trainset1)} samples')
-    logger.info(f'Trainset2 (P3M10K): {len(trainset2)} samples')
-    logger.info(f'Trainset3 (COMPOSITION): {len(trainset3)} samples')
+    # logger.info(f'Trainset1 (AIM500): {len(trainset1)} samples')
+    # logger.info(f'Trainset2 (P3M10K): {len(trainset2)} samples')
+    # logger.info(f'Trainset3 (COMPOSITION): {len(trainset3)} samples')
+    logger.info(f'Trainset (Adobe_alphamatte): {len(trainset)} samples')
     
-    total_samples = sum([d.get_samples_number() for d in trainset.datasets])
+    
+    # total_samples = sum([d.get_samples_number() for d in trainset.datasets])
+    total_samples = trainset.get_samples_number()
     logger.info(f'Dataset of {total_samples} samples was loaded for training.')
 
     val_samples = valset.get_samples_number()
@@ -151,7 +132,7 @@ def train(model, cfg, model_cfg):
                         lr_scheduler=lr_scheduler,
                         checkpoint_interval=[(0, 10), (50, 1)],
                         image_dump_interval=300, # interval to save png
-                        metrics=[PerClassIoU(), MultiClassIoU(), UnknownIoU()],
+                        metrics=[AlphaMAE(), AlphaMSE(), AlphaPSNR(), AlphaGradientError()],
                         max_interactive_points=model_cfg.num_max_points,
                         max_num_next_clicks=3)
     trainer.run(num_epochs=55, validation=False)

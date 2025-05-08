@@ -288,14 +288,14 @@ class ISTrainer(object):
             batch_data = {k: v.to(self.device) for k, v in batch_data.items()}
             image = batch_data['images']              # [B, 3, H, W]
             seg_mask = batch_data['seg_mask']         # [B, 1, H, W]
-            gt_trimap = batch_data['instances']       # [B, H, W]
+            gt_alphamatte = batch_data['instances']       # [B, H, W]
 
             # prev_output, points 관련 불필요한 코드 제거함
 
             # 모델 forward
             output = self.net(image, seg_mask)
             
-            target_size = gt_trimap.shape[-2:]  # (H, W)
+            target_size = gt_alphamatte.shape[-2:]  # (H, W)
             if output['instances'].shape[-2:] != target_size:
                 output['instances'] = torch.nn.functional.interpolate(
                     output['instances'],
@@ -316,9 +316,9 @@ class ISTrainer(object):
 
             # loss 계산
             loss = self.add_loss('instance_loss', loss, losses_logging, validation,
-                                lambda: (output['instances'], gt_trimap))
+                                lambda: (output['instances'], gt_alphamatte))
             loss = self.add_loss('instance_aux_loss', loss, losses_logging, validation,
-                                lambda: (output['instances_aux'], gt_trimap))
+                                lambda: (output['instances_aux'].squeeze(1), gt_alphamatte))
 
             if self.is_master:
                 with torch.no_grad():
@@ -362,58 +362,6 @@ class ISTrainer(object):
         return total_loss
 
 
-    # def add_loss(self, loss_name, total_loss, losses_logging, validation, lambda_loss_inputs):
-    #     loss_cfg = self.loss_cfg if not validation else self.val_loss_cfg
-    #     loss_weight = loss_cfg.get(loss_name + '_weight', 0.0)
-    #     if loss_weight > 0.0:
-    #         loss_criterion = loss_cfg.get(loss_name)
-    #         loss = loss_criterion(*lambda_loss_inputs())
-    #         loss = torch.mean(loss)
-    #         losses_logging[loss_name] = loss
-    #         loss = loss_weight * loss
-    #         total_loss = total_loss + loss
-
-    #     return total_loss
-
-    # def save_visualization(self, splitted_batch_data, outputs, global_step, prefix):
-    #     #kjk
-    #     output_images_path = self.cfg.VIS_PATH / prefix
-    #     if self.task_prefix:
-    #         output_images_path /= self.task_prefix
-
-    #     output_images_path.mkdir(parents=True, exist_ok=True)
-    #     image_name_prefix = f'{global_step:06d}'
-
-    #     def _save_image(suffix, image):
-    #         cv2.imwrite(str(output_images_path / f'{image_name_prefix}_{suffix}.png'),
-    #                     image, [cv2.IMWRITE_PNG_COMPRESSION, 3])  # PNG 저장
-
-    #     # 입력데이터
-    #     images = splitted_batch_data['images']                   # [B, 3, H, W]
-    #     gt_trimap = splitted_batch_data['instances']             # [B, H, W]
-    #     pred_logits = outputs['instances']                       # [B, 3, H, W]
-    #     pred_trimap = torch.argmax(pred_logits, dim=1)           # [B, H, W]
-
-    #     # 첫번째 배치만 저장
-    #     image = images[0].cpu().numpy().transpose(1, 2, 0) * 255
-    #     image = image.astype(np.uint8)
-    #     gt_mask = gt_trimap[0].cpu().numpy()        # [H, W] with class indices (0,1,2)
-    #     pred_mask = pred_trimap[0].cpu().numpy()    # [H, W]
-
-    #     # class index -> trimap 값 매핑
-    #     def map_trimap_values(mask):
-    #         mapped = np.zeros_like(mask, dtype=np.uint8)
-    #         mapped[mask == 0] = 0     # background
-    #         mapped[mask == 1] = 128   # unknown
-    #         mapped[mask == 2] = 255   # foreground
-    #         return mapped
-
-    #     gt_mask = map_trimap_values(gt_mask)
-    #     pred_mask = map_trimap_values(pred_mask)
-
-    #     _save_image('gt_trimap', gt_mask)
-    #     _save_image('pred_trimap', pred_mask)
-
     def save_visualization(self, splitted_batch_data, outputs, global_step, prefix):
         output_images_path = self.cfg.VIS_PATH / prefix
         if self.task_prefix:
@@ -423,19 +371,19 @@ class ISTrainer(object):
 
         images = splitted_batch_data['images']                   # [B, 3, H, W]
         seg_masks = splitted_batch_data['seg_mask']              # [B, 1, H, W]
-        gt_trimap = splitted_batch_data['instances']             # [B, H, W]
+        gt_alphamatte = splitted_batch_data['instances']             # [B, H, W]
         pred_logits = outputs['instances']                       # [B, 3, H, W]
-        pred_trimap = torch.argmax(pred_logits, dim=1)           # [B, H, W]
+        pred_alphamatte = torch.argmax(pred_logits, dim=1)           # [B, H, W]
 
         batch_size = images.shape[0]
         num_to_save = max(1, batch_size // 4)                    # 전체 배치 중 1/4 저장
 
-        def map_trimap_values(mask):
-            mapped = np.zeros_like(mask, dtype=np.uint8)
-            mapped[mask == 0] = 0     # background
-            mapped[mask == 1] = 128   # unknown
-            mapped[mask == 2] = 255   # foreground
-            return mapped
+        # def map_trimap_values(mask):
+        #     mapped = np.zeros_like(mask, dtype=np.uint8)
+        #     mapped[mask == 0] = 0     # background
+        #     mapped[mask == 1] = 128   # unknown
+        #     mapped[mask == 2] = 255   # foreground
+        #     return mapped
 
         def map_seg_mask(mask):
             mapped = np.zeros_like(mask, dtype=np.uint8)
@@ -452,18 +400,18 @@ class ISTrainer(object):
             # Segmentation mask (aux)
             seg_mask = map_seg_mask(seg_masks[i].cpu().numpy().squeeze())
 
-            # GT trimap (0/128/255) and predicted trimap
-            gt_mask = map_trimap_values(gt_trimap[i].cpu().numpy())
-            pred_mask = map_trimap_values(pred_trimap[i].cpu().numpy())
-
+            # GT alphamatte and predicted alphamatte
+            gt_mask = (gt_alphamatte[i].cpu().numpy() * 255).astype(np.uint8)
+            pred_mask = torch.sigmoid(outputs['instances'][i]).cpu().numpy().squeeze()
+            pred_mask = (pred_mask * 255).astype(np.uint8)
             def _save_image(suffix, image):
                 cv2.imwrite(str(output_images_path / f'{image_name_prefix}_{suffix}.png'),
                             image, [cv2.IMWRITE_PNG_COMPRESSION, 3])
 
             _save_image('image', image)
             _save_image('seg_mask', seg_mask)
-            _save_image('gt_trimap', gt_mask)
-            _save_image('pred_trimap', pred_mask)
+            _save_image('gt_alphamatte', gt_mask)
+            _save_image('pred_alphamatte', pred_mask)
 
 
     

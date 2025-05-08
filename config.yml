@@ -29,6 +29,14 @@ AM2K_PATH: "./datasets/AM-2k"
 P3M10K_TRAIN_PATH: "./datasets/P3M-10k"
 COMPOSITION431K_PATH : "./datasets/Composition-431k-png"
 
+#Alphamatte
+ADOBE_ALPHAMATTE_TRAIN_PATH: "./datasets/AlphaDataset/Adobe_Composition"
+
+# Validation datasets
+#Alphamatte
+ADOBE_ALPHAMATTE_TEST_PATH: "./datasets/AlphaDataset/Adobe_Composition_test"
+
+
 #INPUT_SIZE : 672
 INPUT_SIZE : 448
 
