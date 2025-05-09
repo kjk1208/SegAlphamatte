@@ -12,7 +12,7 @@
 # --ngpus=2 \
 # --upsample='x4'
 
-python train.py ./models/loss/alphamatte_huge448_CE_loss.py \
+python train.py ./models/loss/alphamatte_huge448_BCE_loss.py \
 --batch-size=28 \
 --ngpus=2 \
 --upsample='x4'
